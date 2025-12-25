@@ -1,4 +1,10 @@
 from os.path import join
+import sys
+import os
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
+from fec_injector import FECInjector
 
 import numpy as np
 from math import sqrt, pi, ceil
@@ -32,6 +38,16 @@ class AdaptiveSimulator(object):
         self.remove_tokens = config.get('remove_tokens', True)
         self.stop_on_real = config.get('stop_on_real', True)
         self.percentile = float(config.get('percentile', 0))
+        
+        # FEC Configuration
+        self.fec_strategy = config.get('fec_strategy', 'A')
+        # Initialize FEC Injectors for both directions
+        self.injector_snd = FECInjector(self.fec_strategy)
+        self.injector_rcv = FECInjector(self.fec_strategy)
+        
+        # Real packet counters
+        self.real_snd_id = 0
+        self.real_rcv_id = 0
 
         # the distribution of packet lengths is fixed in Tor
         self.length_distrib = histo.uniform(ct.MTU)
@@ -54,6 +70,15 @@ class AdaptiveSimulator(object):
 
             # update state
             self.update_state(packet, flow)
+            
+            # Process Real Packet for FEC
+            if not packet.dummy:
+                if packet.direction == OUT: # Client -> Server (snd)
+                    self.real_snd_id += 1
+                    self.injector_snd.process_real_packet(self.real_snd_id)
+                else: # Server -> Client (rcv)
+                    self.real_rcv_id += 1
+                    self.injector_rcv.process_real_packet(self.real_rcv_id)
 
             # run adaptive padding in the flow direction
             self.add_padding(i, trace, flow, 'snd')
@@ -97,7 +122,7 @@ class AdaptiveSimulator(object):
                 flow.expired, flow.timeout = True, timeout
 
                 # the timeout has expired, we send a dummy packet
-                dummy = self.generate_dummy(packet, flow, timeout)
+                dummy = self.generate_dummy(packet, flow, timeout, on)
 
                 # correct the timeout
                 iat = timeout
@@ -151,11 +176,19 @@ class AdaptiveSimulator(object):
         # TODO
         pass
 
-    def generate_dummy(self, packet, flow, timeout):
+    def generate_dummy(self, packet, flow, timeout, on):
         """Set properties for dummy packet."""
         ts = packet.timestamp + timeout
         l = self.length_distrib.random_sample()
-        return Packet(ts, flow.direction, l, dummy=True)
+        
+        # Generate FEC metadata
+        metadata = {}
+        if flow.direction == OUT: # Client -> Server
+             metadata = self.injector_snd.generate_dummy_content()
+        else: # Server -> Client
+             metadata = self.injector_rcv.generate_dummy_content()
+             
+        return Packet(ts, flow.direction, l, dummy=True, metadata=metadata)
 
     def sum_noinf_toks(self, h):
         return sum([v for k, v in h.items() if k != INF])

@@ -1,0 +1,3 @@
+2025-12-25 22:42:54,178 ranpad2      INFO     Namespace(p='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpoda85mwa', format='.cell', section='default', log='front_test.log', fec_strategy='B')
+2025-12-25 22:42:54,178 ranpad2      INFO     Traces are dumped to /Users/hjsjhn/Library/CloudStorage/OneDrive-个人/PhD/Lessons/互联网体系结构及其安全基础/Project/WebsiteFingerprinting/defenses/results/ranpad2_1225_2242
+2025-12-25 22:42:55,329 ranpad2      INFO     Time: 1.1510450839996338

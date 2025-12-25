@@ -2,6 +2,7 @@ import constants as ct
 from constants import IN, OUT, TOR_CELL_SIZE
 
 import logging
+import json
 
 logger = logging.getLogger('ranpad')
 
@@ -24,8 +25,10 @@ def dump(trace, fpath):
     '''Write trace packet into file `fpath`.'''
     with open(fpath, 'w') as fo:
         for packet in trace:
-            fo.write("{:.5f}".format(packet.timestamp) +'\t' + "{}".format(packet.direction*packet.length)\
-                + ct.NL)
+            line = "{:.5f}".format(packet.timestamp) +'\t' + "{}".format(packet.direction*packet.length)
+            if packet.metadata:
+                line += '\t' + json.dumps(packet.metadata)
+            fo.write(line + ct.NL)
 
 
 class Packet(object):
@@ -35,11 +38,12 @@ class Packet(object):
     """
     payload = None
 
-    def __init__(self, timestamp, direction, length, dummy=False):
+    def __init__(self, timestamp, direction, length, dummy=False, metadata=None):
         self.timestamp = timestamp
         self.direction = direction
         self.length = length
         self.dummy = dummy
+        self.metadata = metadata
 
     def __lt__(self, other):
         return self.timestamp < other.timestamp
@@ -100,4 +104,3 @@ class Flow(Trace):
         self.timeout = 0.0
         self.state = ct.BURST
         Trace.__init__(self)
-

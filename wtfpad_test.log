@@ -1,0 +1,2 @@
+2025-12-25 22:42:55,974 wtfpad       INFO     Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpoda85mwa', section='default', log='wtfpad_test.log', fec_strategy='D')
+2025-12-25 22:42:55,974 wtfpad       INFO     Configuration: {'interpolate': 'True', 'remove_tokens': 'True', 'stop_on_real': 'True', 'percentile': '0.5', 'fec_strategy': 'D'}

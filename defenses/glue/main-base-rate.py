@@ -11,11 +11,16 @@ from time import strftime
 import numpy as np
 import glob
 import pandas as pd
+import json
 
 import configparser
 import argparse
 import logging
 import datetime
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
+from fec_injector import FECInjector
 
 logger = logging.getLogger('mergepad')
 
@@ -58,11 +63,14 @@ def weibull(k = 0.75):
 def uniform():
     return np.random.uniform(1,10)
 
-def dump(trace, fpath):
+def dump(trace, fpath, metadata_list=None):
     '''Write trace packet into file `fpath`.'''
     with open(fpath, 'w') as fo:
-        for packet in trace:
-            fo.write("{}".format(packet[0]) +'\t' + "{}".format(int(packet[1])) + ct.NL)
+        for i, packet in enumerate(trace):
+            line = "{}".format(packet[0]) +'\t' + "{}".format(int(packet[1]))
+            if metadata_list and i < len(metadata_list) and metadata_list[i]:
+                 line += '\t' + json.dumps(metadata_list[i])
+            fo.write(line + ct.NL)
 
 
  
@@ -94,7 +102,7 @@ def choose_site():
     noise_site = np.random.choice(list_names,1)[0]
     return noise_site
         
-def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10):
+def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A'):
     '''mergelist is a list of file names'''
     '''write in 2 files: the merged trace; the merged trace's name'''
     labels = ""
@@ -126,7 +134,63 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
 
     if noise:
         this = this[this[:,0].argsort(kind = "mergesort")]
-    dump(this, join(output_dir, outputname+'.merge'))
+        
+    # Apply FEC
+    injector_snd = FECInjector(fec_strategy) # OUT
+    injector_rcv = FECInjector(fec_strategy) # IN
+    
+    final_trace = []
+    metadata_list = []
+    
+    real_snd_id = 0
+    real_rcv_id = 0
+    
+    # Sort by time just in case
+    this = this[this[:,0].argsort(kind = "mergesort")]
+    
+    for packet in this:
+        ts = packet[0]
+        length = int(packet[1])
+        
+        # Process Real Packet
+        if length > 0: # Client -> Server
+            real_snd_id += 1
+            injector_snd.process_real_packet(real_snd_id)
+        else: # Server -> Client
+            real_rcv_id += 1
+            injector_rcv.process_real_packet(real_rcv_id)
+            
+        final_trace.append(packet)
+        metadata_list.append({}) # Real packets have no metadata
+        
+        # Check for FEC injection
+        # We can inject FEC packets after real packets
+        # Note: Glue merges multiple flows. We treat it as one big flow here.
+        
+        # Check if we should inject dummy/FEC
+        # For simplicity, we check after every packet if we have pending FEC
+        
+        # Client FEC
+        meta_snd = injector_snd.generate_dummy_content()
+        if meta_snd and meta_snd.get("type") != "DUMMY":
+             # Inject FEC packet
+             # Glue doesn't have a specific dummy size? 
+             # We can use a standard size or 0?
+             # Let's use 1 (smallest) or same as real?
+             # Glue packets are just length.
+             # Let's use 512 for dummy? Or 0?
+             # Glue seems to use actual lengths.
+             # We'll use 512 for dummy.
+             final_trace.append([ts + 0.0001, 512]) # Slightly after
+             metadata_list.append(meta_snd)
+             
+        # Server FEC
+        meta_rcv = injector_rcv.generate_dummy_content()
+        if meta_rcv and meta_rcv.get("type") != "DUMMY":
+             final_trace.append([ts + 0.0001, -512])
+             metadata_list.append(meta_rcv)
+
+    dump(final_trace, join(output_dir, outputname+'.merge'), metadata_list)
     logger.debug("Merged trace is dumpped to %s.merge"%outputname)            
     return labels     
 
@@ -137,7 +201,7 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
 #     labels = ""
 #     this = None
 #     start = 0.0 
-    
+#     
 #     for cnt,fname in enumerate(mergelist):
 #         label, trace = load_trace(fname)
 #         labels += label + '\t'
@@ -254,6 +318,14 @@ def parse_arguments():
                         metavar='<log path>',
                         default='stdout',
                         help='path to the log file. It will print to stdout by default.')
+                        
+    parser.add_argument('--fec-strategy',
+                        type=str,
+                        dest="fec_strategy",
+                        metavar='<strategy>',
+                        default='A',
+                        choices=['A', 'B', 'C', 'D'],
+                        help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
@@ -300,10 +372,10 @@ def CreateRandomMergedTrace(traces_path, list_names, N, M,BaseRate):
     return mergedTrace, nums
 
 
-def parallel(output_dir, noise, mergedTrace,n_jobs = 20): 
+def parallel(output_dir, noise, mergedTrace, fec_strategy, n_jobs = 20): 
     cnt = range(len(mergedTrace))
     l = len(cnt)
-    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace)
+    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l)
     pool = mp.Pool(n_jobs)
     l  = pool.map(work, param_dict)
     return l
@@ -311,8 +383,8 @@ def parallel(output_dir, noise, mergedTrace,n_jobs = 20):
 
 def work(param):
     np.random.seed(datetime.datetime.now().microsecond)
-    output_dir, cnt, noise, T = param[0],param[1], param[2], param[3]
-    return MergePad2(output_dir,  str(cnt) , noise, T)
+    output_dir, cnt, noise, T, fec_strategy = param[0],param[1], param[2], param[3], param[4]
+    return MergePad2(output_dir,  str(cnt) , noise, T, waiting_time=10, fec_strategy=fec_strategy)
 
 if __name__ == '__main__':
     # global list_names
@@ -334,7 +406,7 @@ if __name__ == '__main__':
     if args.mode == 'random':
         np.save(join(output_dir,'num.npy'),nums)
 
-    l = parallel(output_dir, eval(args.noise), mergedTrace, 20)
+    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, 20)
     # l = []
     # cnt = 0
     # for T in mergedTrace:
@@ -346,4 +418,3 @@ if __name__ == '__main__':
     print(output_dir)
     
     # subprocess.check_call("python3 overhead.py "+output_dir,shell = True)
-

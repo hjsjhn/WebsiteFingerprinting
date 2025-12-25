@@ -8,12 +8,18 @@ from os.path import join
 from os import makedirs
 import constants as ct
 from time import strftime
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import multiprocessing as mp
 import configparser
 import time
 import datetime
 from pprint import pprint
+import json
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
+from fec_injector import FECInjector
+
 logger = logging.getLogger('ranpad2')
 def init_directories():
     # Create a results dir if it doesn't exist yet
@@ -68,6 +74,14 @@ def parse_arguments():
                         metavar='<log path>',
                         default='stdout',
                         help='path to the log file. It will print to stdout by default.')
+    
+    parser.add_argument('--fec-strategy',
+                        type=str,
+                        dest="fec_strategy",
+                        metavar='<strategy>',
+                        default='A',
+                        choices=['A', 'B', 'C', 'D'],
+                        help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
@@ -80,22 +94,94 @@ def load_trace(fdir):
     t = pd.Series(tmp).str.slice(0,-1).str.split('\t',expand = True).astype('float')
     return np.array(t)
 
-def dump(trace, fname):
+def dump(trace, fname, metadata_list=None):
     global output_dir
     with open(join(output_dir,fname), 'w') as fo:
-        for packet in trace:
-            fo.write("{:.4f}".format(packet[0]) +'\t' + "{}".format(int(packet[1]))\
-                + ct.NL)
+        for i, packet in enumerate(trace):
+            line = "{:.4f}".format(packet[0]) +'\t' + "{}".format(int(packet[1]))
+            if metadata_list and i < len(metadata_list) and metadata_list[i]:
+                 line += '\t' + json.dumps(metadata_list[i])
+            fo.write(line + ct.NL)
+
+# Add global variable
+fec_strategy = 'A'
+
+def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir):
+    global fec_strategy
+    global client_min_dummy_pkt_num
+    global server_min_dummy_pkt_num
+    global client_dummy_pkt_num
+    global server_dummy_pkt_num
+    global start_padding_time
+    global max_wnd
+    global min_wnd
+    global output_dir
+    
+    fec_strategy = args_fec
+    client_min_dummy_pkt_num = c_min
+    server_min_dummy_pkt_num = s_min
+    client_dummy_pkt_num = c_dummy
+    server_dummy_pkt_num = s_dummy
+    start_padding_time = start_time
+    max_wnd = max_w
+    min_wnd = min_w
+    output_dir = out_dir
 
 def simulate(fdir):
+    global fec_strategy
     if not os.path.exists(fdir):
         return
     # logger.debug("Simulating trace {}".format(fdir))
     np.random.seed(datetime.datetime.now().microsecond)
     trace = load_trace(fdir)
-    trace = RP(trace)
+    
+    # Initialize FEC Injector
+    # Note: FRONT processes client and server separately or mixed? 
+    # The trace has direction. We should probably have separate injectors for IN and OUT if we want to be realistic,
+    # but for simplicity and following the plan, let's assume one global sequence or separate.
+    # Usually FEC is per-flow (direction).
+    # Let's create two injectors.
+    injector_client = FECInjector(fec_strategy) # OUT
+    injector_server = FECInjector(fec_strategy) # IN
+    
+    noisy_trace = RP(trace)
+    
+    # Post-process to apply FEC logic and generate metadata
+    metadata_list = []
+    
+    # Counters for packet IDs
+    real_client_id = 0
+    real_server_id = 0
+    
+    for packet in noisy_trace:
+        ts = packet[0]
+        length = int(packet[1])
+        meta = {}
+        
+        # Check if Real or Dummy
+        # In FRONT, dummy packets have length 888 (client) or -888 (server)
+        # Real packets have other lengths (usually 512 or -512)
+        
+        is_dummy_client = (length == 888)
+        is_dummy_server = (length == -888)
+        
+        if is_dummy_client:
+            meta = injector_client.generate_dummy_content()
+        elif is_dummy_server:
+            meta = injector_server.generate_dummy_content()
+        else:
+            # Real packet
+            if length > 0: # Client -> Server
+                real_client_id += 1
+                injector_client.process_real_packet(real_client_id)
+            else: # Server -> Client
+                real_server_id += 1
+                injector_server.process_real_packet(real_server_id)
+        
+        metadata_list.append(meta)
+
     fname = fdir.split('/')[-1]
-    dump(trace, fname)
+    dump(noisy_trace, fname, metadata_list)
 
 def RP(trace):
     # format: [[time, pkt],[...]]
@@ -155,21 +241,25 @@ def getTimestamps(wnd, num):
     return np.reshape(timestamps, (len(timestamps),1))
 
 
-def parallel(flist, n_jobs = 20):
-    pool = mp.Pool(n_jobs)
+def parallel(flist, init_args, n_jobs = 20):
+    pool = mp.Pool(n_jobs, initializer=init_worker, initargs=init_args)
     pool.map(simulate, flist)
 
 
 if __name__ == '__main__':
-    global client_dummy_pkt_num 
-    global server_dummy_pkt_num 
-    global client_min_dummy_pkt_num
-    global server_min_dummy_pkt_num
-    global max_wnd
-    global min_wnd 
-    global start_padding_time
+    # global client_dummy_pkt_num 
+    # global server_dummy_pkt_num 
+    # global client_min_dummy_pkt_num
+    # global server_min_dummy_pkt_num
+    # global max_wnd
+    # global min_wnd 
+    # global start_padding_time
+    # global fec_strategy
+    
     args, config = parse_arguments()
     logger.info(args)
+    
+    fec_strategy = args.fec_strategy
 
     client_min_dummy_pkt_num = int(config.get('client_min_dummy_pkt_num',1))
     server_min_dummy_pkt_num = int(config.get('server_min_dummy_pkt_num',1))
@@ -203,5 +293,7 @@ if __name__ == '__main__':
     #         print(r"Done for inst ",i,flush = True)
     #     simulate(f)
 
-    parallel(flist)
+    init_args = (fec_strategy, client_min_dummy_pkt_num, server_min_dummy_pkt_num, 
+                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir)
+    parallel(flist, init_args)
     logger.info("Time: {}".format(time.time()-start))

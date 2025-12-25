@@ -13,6 +13,14 @@ import argparse
 import logging
 import numpy as np
 import overheads
+import json
+
+import sys
+import os
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
+from fec_injector import FECInjector
 
 
 logger = logging.getLogger('tamaraw')
@@ -37,8 +45,6 @@ defpackets = []
 ##    parameters = [100] #padL
 ##    AnoaPad(list2, lengths, times, parameters)
 
-import sys
-import os
 # for x in sys.argv[2:]:
 #    parameters.append(float(x))
 #    print(parameters)
@@ -69,7 +75,7 @@ def AnoaTime(parameters):
 
         
 
-def AnoaPad(list1, list2, padL, method):
+def AnoaPad(list1, list2, padL, method, injector_snd, injector_rcv):
     lengths = [0, 0]
     times = [0, 0]
     for x in list1:
@@ -95,15 +101,20 @@ def AnoaPad(list1, list2, padL, method):
         logger.info("Need to pad to %d packets."%topad)
         while (lengths[j] < topad):
             curtime += AnoaTime([j, 0])
-            if j == 0:
-                paddings.append([curtime, DUMMYCODE * DATASIZE])
-            else:
-                paddings.append([curtime, -DUMMYCODE* DATASIZE])
+            
+            # Generate FEC metadata for dummy packet
+            metadata = {}
+            if j == 0: # OUT (Client -> Server)
+                metadata = injector_snd.generate_dummy_content()
+                paddings.append([curtime, DUMMYCODE * DATASIZE, metadata])
+            else: # IN (Server -> Client)
+                metadata = injector_rcv.generate_dummy_content()
+                paddings.append([curtime, -DUMMYCODE* DATASIZE, metadata])
             lengths[j] += 1
     paddings = sorted(paddings, key = lambda x: x[0])
     list2.extend(paddings)
 
-def Anoa(list1, list2, parameters): #inputpacket, outputpacket, parameters
+def Anoa(list1, list2, parameters, injector_snd, injector_rcv): #inputpacket, outputpacket, parameters
     #Does NOT do padding, because ambiguity set analysis. 
     #list1 WILL be modified! if necessary rewrite to tempify list1.
     starttime = list1[0][0]
@@ -119,6 +130,10 @@ def Anoa(list1, list2, parameters): #inputpacket, outputpacket, parameters
         parameters[0] = "Time-split varying bandwidth, split by 0.1 seconds. "
         parameters[0] += "Tolerance: 2x."
     listind = 1 #marks the next packet to send
+    
+    real_snd_id = 0
+    real_rcv_id = 0
+    
     while (listind < len(list1)):
         #decide which packet to send
         if times[0] + AnoaTime([0, method, times[0]-starttime]) < times[1] + AnoaTime([1, method, times[1]-starttime]):
@@ -138,9 +153,15 @@ def Anoa(list1, list2, parameters): #inputpacket, outputpacket, parameters
                 tosend = 0
             if (listind >= len(list1)):
                 break
-        if cursign == 0:
+        
+        # Process Real Packet for FEC
+        if cursign == 0: # OUT
+            real_snd_id += 1
+            injector_snd.process_real_packet(real_snd_id)
             list2.append([curtime, datasize])
-        else:
+        else: # IN
+            real_rcv_id += 1
+            injector_rcv.process_real_packet(real_rcv_id)
             list2.append([curtime, -datasize])
         lengths[cursign] += 1
         
@@ -190,6 +211,14 @@ def parse_arguments():
                         metavar='<log path>',
                         default='stdout',
                         help='path to the log file. It will print to stdout by default.')
+                        
+    parser.add_argument('--fec-strategy',
+                        type=str,
+                        dest="fec_strategy",
+                        metavar='<strategy>',
+                        default='A',
+                        choices=['A', 'B', 'C', 'D'],
+                        help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
     args = parser.parse_args()
     #config = dict(conf_parser._sections[args.section])
@@ -241,20 +270,28 @@ if __name__ == '__main__':
                 for x in lines:
                     x = x.split("\t")
                     packets.append([float(x[0]) - starttime, int(x[1])])
+            
+            # Initialize injectors
+            injector_snd = FECInjector(args.fec_strategy)
+            injector_rcv = FECInjector(args.fec_strategy)
+            
             list2 = [packets[0]]
             parameters = [""]
             
-            Anoa(packets, list2, parameters)
+            Anoa(packets, list2, parameters, injector_snd, injector_rcv)
             list2 = sorted(list2, key = lambda list2: list2[0])
             anoad.append(list2)
 
             list3 = []
             
-            AnoaPad(list2, list3, PadL, 0)
+            AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
 
             fout = open(os.path.join(foldout,fname), "w")
             for x in list3:
-                fout.write("{:.4f}\t{:d}\n".format(x[0],x[1]))
+                line = "{:.4f}\t{:d}".format(x[0],x[1])
+                if len(x) > 2 and x[2]: # If metadata exists
+                     line += "\t" + json.dumps(x[2])
+                fout.write(line + "\n")
             fout.close()
 
             #latency:
@@ -296,24 +333,32 @@ if __name__ == '__main__':
             for x in lines:
                 x = x.split("\t")
                 packets.append([float(x[0]) - starttime, int(x[1])])
+        
+        # Initialize injectors
+        injector_snd = FECInjector(args.fec_strategy)
+        injector_rcv = FECInjector(args.fec_strategy)
+        
         list2 = [packets[0]]
         parameters = [""]
         
-        Anoa(packets, list2, parameters)
+        Anoa(packets, list2, parameters, injector_snd, injector_rcv)
         list2 = sorted(list2, key = lambda list2: list2[0])
         anoad.append(list2)
 
         list3 = []
         
-        AnoaPad(list2, list3, PadL, 0)
+        AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
 
         fout = open(os.path.join(foldout, fname), "w")
         for x in list3:
-            fout.write("{:.4f}\t{:d}\n".format(x[0],x[1]))
+            line = "{:.4f}\t{:d}".format(x[0],x[1])
+            if len(x) > 2 and x[2]: # If metadata exists
+                 line += "\t" + json.dumps(x[2])
+            fout.write(line + "\n")
         fout.close()
         #latency:
         old = packets[-1][0] - packets[0][0]
-       #new definition of time latency:
+        #new definition of time latency:
         new = list2[-1][0] -list2[0][0]
         # new = list3[-1][0] -list3[0][0]
 
@@ -351,4 +396,3 @@ if __name__ == '__main__':
     # logger.info("Median latency overhead: %.4f"%np.median(latencies))
     # logger.info("Median size overhead:%.4f"%np.median(sizes))
     
-

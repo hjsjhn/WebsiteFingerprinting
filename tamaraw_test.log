@@ -1,0 +1,14 @@
+2025-12-25 22:42:56,984 tamaraw      INFO     Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpoda85mwa', log='tamaraw_test.log', fec_strategy='C')
+2025-12-25 22:42:56,985 tamaraw      INFO     Simulating 0-0.cell...
+2025-12-25 22:42:56,987 tamaraw      INFO     Need to pad to 450 packets.
+2025-12-25 22:42:56,987 tamaraw      INFO     Need to pad to 1300 packets.
+2025-12-25 22:42:56,989 tamaraw      INFO     old size:976,mid size:1656, new size:1750
+2025-12-25 22:42:56,989 tamaraw      INFO     Latency overhead: 1.0906,size overhead:1.7930
+2025-12-25 22:42:56,989 tamaraw      INFO     Simulating 0.cell..
+2025-12-25 22:42:56,992 tamaraw      INFO     Need to pad to 550 packets.
+2025-12-25 22:42:56,993 tamaraw      INFO     Need to pad to 1300 packets.
+2025-12-25 22:42:56,994 tamaraw      INFO     old size:976,mid size:1656, new size:1850
+2025-12-25 22:42:56,995 tamaraw      INFO     Latency overhead: 1.0906,size overhead:1.8955
+2025-12-25 22:42:56,995 tamaraw      INFO     Average latency overhead: 0.0906
+2025-12-25 22:42:56,995 tamaraw      INFO     Average size overhead:0.8443
+2025-12-25 22:42:56,995 tamaraw      INFO     tamaraw_1225_2242
