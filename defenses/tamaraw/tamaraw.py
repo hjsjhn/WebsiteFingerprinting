@@ -377,7 +377,9 @@ if __name__ == '__main__':
         AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
 
         # Apply Transport Simulation
-        tsim = TransportSimulator(args.loss_rate, args.rtt)
+        # Apply Transport Simulation
+        debug_log_path = os.path.join(foldout, fname + '.debug.log')
+        tsim = TransportSimulator(args.loss_rate, args.rtt, debug_log_path=debug_log_path)
         final_trace = tsim.simulate(list3)
 
         fout = open(os.path.join(foldout, fname), "w")

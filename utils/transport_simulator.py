@@ -236,9 +236,12 @@ class TransportSimulator:
         
         avg_latency = stats['total_latency'] / stats['total_real'] if stats['total_real'] > 0 else 0.0
         
-        print(f"[TransportSimulator] Stats: Total Real={stats['total_real']}, FEC={stats['total_fec']}, Dummy={stats['total_dummy']}, "
-                     f"Lost={stats['lost_real']}, Recovered={stats['recovered_real']}, "
-                     f"Retransmitted={stats['retransmitted_real']}, FCT={fct:.4f}, AvgLatency={avg_latency:.4f}", flush=True)
+        stats_line = f"[TransportSimulator] Stats: Total Real={stats['total_real']}, FEC={stats['total_fec']}, Dummy={stats['total_dummy']}, Lost={stats['lost_real']}, Recovered={stats['recovered_real']}, Retransmitted={stats['retransmitted_real']}, FCT={fct:.4f}, AvgLatency={avg_latency:.4f}"
+        print(stats_line, flush=True)
+        
+        if self.debug_log_path:
+            with open(self.debug_log_path, 'a') as f:
+                f.write(stats_line + '\n')
         
         if self.log_file:
             self.log_file.close()

@@ -186,7 +186,9 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
              final_trace_list.append([ts + 0.0001, -512, meta_rcv])
 
     # Apply Transport Simulation
-    tsim = TransportSimulator(loss_rate, rtt)
+    # Apply Transport Simulation
+    debug_log_path = join(output_dir, outputname+'.debug.log')
+    tsim = TransportSimulator(loss_rate, rtt, debug_log_path=debug_log_path)
     final_trace = tsim.simulate(final_trace_list)
 
     dump(final_trace, join(output_dir, outputname+'.merge'))

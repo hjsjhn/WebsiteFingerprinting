@@ -92,7 +92,9 @@ def process_trace(file_path, config, output_dir):
         for p in noisy_trace:
             processed_trace.append([p.timestamp, p.length, p.metadata])
             
-        tsim = TransportSimulator(loss_rate, rtt)
+        # Debug log path
+        debug_log_path = os.path.join(output_dir, fname + '.debug.log')
+        tsim = TransportSimulator(loss_rate, rtt, debug_log_path=debug_log_path)
         final_trace = tsim.simulate(processed_trace)
         
         # Dump

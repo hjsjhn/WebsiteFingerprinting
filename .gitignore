@@ -2,9 +2,13 @@
 __pycache__
 
 results/
+evaluation_logs/
+
 *.pyc
 df_train.sh
 attacks/df/log
 data/
 
 .DS_Store
+
+comprehensive_results.csv

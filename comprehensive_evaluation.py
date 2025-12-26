@@ -14,8 +14,8 @@ LOG_DIR = "evaluation_logs"
 
 # Dimensions
 DEFENSES = [
-    {'name': 'front_default', 'cmd': 'defenses/front/main.py', 'args': ['--config', 'default']},
-    {'name': 'front_t1', 'cmd': 'defenses/front/main.py', 'args': ['--config', 't1']},
+    {'name': 'front_default', 'cmd': 'defenses/front/main.py', 'args': ['--config', 'default', '-format', '.cell']},
+    {'name': 'front_t1', 'cmd': 'defenses/front/main.py', 'args': ['--config', 't1', '-format', '.cell']},
     {'name': 'wtfpad_default', 'cmd': 'defenses/wtfpad/main.py', 'args': ['-c', 'default']},
     {'name': 'tamaraw_default', 'cmd': 'defenses/tamaraw/tamaraw.py', 'args': ['--padl', '50']},
     {'name': 'tamaraw_high', 'cmd': 'defenses/tamaraw/tamaraw.py', 'args': ['--padl', '100']},
@@ -77,25 +77,54 @@ def run_simulation(params):
         total_latency = 0.0
         count = 0
         
-        # Output might be in stdout or stderr depending on logging
-        # But we redirected log to file. We should read the log file.
+        # Parse output from stdout (TransportSimulator prints to stdout)
+        content = result.stdout
+        matches = STATS_PATTERN.findall(content)
         
-        if os.path.exists(log_file):
+        # Also check stderr just in case
+        if not matches:
+             matches = STATS_PATTERN.findall(result.stderr)
+             
+        # If still no matches, check log file for "Traces are dumped to" and read debug logs
+        if not matches and os.path.exists(log_file):
             with open(log_file, 'r') as f:
-                content = f.read()
-                matches = STATS_PATTERN.findall(content)
-                for match in matches:
-                    total_real += int(match[0])
-                    total_fec += int(match[1])
-                    total_dummy += int(match[2])
-                    total_lost += int(match[3])
-                    total_recovered += int(match[4])
-                    total_retransmitted += int(match[5])
-                    total_fct += float(match[6])
-                    total_latency += float(match[7])
-                    count += 1
+                log_content = f.read()
+                
+            # Try to find output directory
+            out_dir_match = re.search(r"Traces are dumped to (.+)", log_content)
+            if out_dir_match:
+                out_dir = out_dir_match.group(1).strip()
+                if os.path.exists(out_dir):
+                    print(f"  -> Found output dir: {out_dir}")
+                    # Read all .debug.log files
+                    import glob
+                    debug_logs = glob.glob(os.path.join(out_dir, "*.debug.log"))
+                    for dlog in debug_logs:
+                        with open(dlog, 'r') as df:
+                            dcontent = df.read()
+                            dmatches = STATS_PATTERN.findall(dcontent)
+                            matches.extend(dmatches)
+            
+            # Also check the main log file itself for stats (some defenses might log there)
+            matches.extend(STATS_PATTERN.findall(log_content))
+
+        for match in matches:
+            total_real += int(match[0])
+            total_fec += int(match[1])
+            total_dummy += int(match[2])
+            total_lost += int(match[3])
+            total_recovered += int(match[4])
+            total_retransmitted += int(match[5])
+            total_fct += float(match[6])
+            total_latency += float(match[7])
+            count += 1
         
         if count == 0:
+            # Debug: print stdout/stderr snippet
+            print(f"  -> No stats found. Stdout snippet: {result.stdout[:200]}...")
+            print(f"  -> Stderr snippet: {result.stderr[:200]}...")
+            if os.path.exists(log_file):
+                 print(f"  -> Log file exists: {log_file}")
             return None
             
         return {
