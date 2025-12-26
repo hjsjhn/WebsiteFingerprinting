@@ -29,7 +29,7 @@ logger = logging.getLogger('tamaraw')
 '''params'''
 DATASIZE = 1
 DUMMYCODE = 1
-PadL = 50
+# PadL = 50 # Moved to args
 
 MON_SITE_NUM = 1
 MON_INST_NUM = 1
@@ -235,6 +235,13 @@ def parse_arguments():
                         default=0.1,
                         help='Round Trip Time in seconds')
 
+    parser.add_argument('--padl',
+                        type=int,
+                        dest="padl",
+                        metavar='<padl>',
+                        default=50,
+                        help='Padding Length (Controls overhead)')
+
     args = parser.parse_args()
     #config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -299,7 +306,8 @@ if __name__ == '__main__':
 
             list3 = []
             
-            AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
+            # Run Tamaraw
+            AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
 
             # Apply Transport Simulation
             tsim = TransportSimulator(args.loss_rate, args.rtt)
@@ -366,7 +374,7 @@ if __name__ == '__main__':
 
         list3 = []
         
-        AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
+        AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
 
         # Apply Transport Simulation
         tsim = TransportSimulator(args.loss_rate, args.rtt)

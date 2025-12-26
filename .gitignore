@@ -1,8 +1,10 @@
 
 __pycache__
 
-defenses/results/
+results/
 *.pyc
 df_train.sh
 attacks/df/log
 data/
+
+.DS_Store
