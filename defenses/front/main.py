@@ -19,6 +19,7 @@ import json
 # Add utils to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
 from fec_injector import FECInjector
+from transport_simulator import TransportSimulator
 
 logger = logging.getLogger('ranpad2')
 def init_directories():
@@ -29,7 +30,7 @@ def init_directories():
     # Define output directory
     timestamp = strftime('%m%d_%H%M')
     output_dir = join(ct.RESULTS_DIR, 'ranpad2_'+timestamp)
-    makedirs(output_dir)
+    makedirs(output_dir, exist_ok=True)
 
     return output_dir
 def config_logger(args):
@@ -82,6 +83,20 @@ def parse_arguments():
                         default='A',
                         choices=['A', 'B', 'C', 'D'],
                         help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
+                        
+    parser.add_argument('--loss-rate',
+                        type=float,
+                        dest="loss_rate",
+                        metavar='<loss_rate>',
+                        default=0.0,
+                        help='Packet loss rate (0.0 - 1.0)')
+
+    parser.add_argument('--rtt',
+                        type=float,
+                        dest="rtt",
+                        metavar='<rtt>',
+                        default=0.1,
+                        help='Round Trip Time in seconds')
 
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
@@ -98,15 +113,30 @@ def dump(trace, fname, metadata_list=None):
     global output_dir
     with open(join(output_dir,fname), 'w') as fo:
         for i, packet in enumerate(trace):
-            line = "{:.4f}".format(packet[0]) +'\t' + "{}".format(int(packet[1]))
-            if metadata_list and i < len(metadata_list) and metadata_list[i]:
-                 line += '\t' + json.dumps(metadata_list[i])
+            # Packet format in trace: [time, length, metadata] (if processed by TransportSimulator)
+            # Or [time, length] + metadata_list[i] (if not)
+            
+            # If trace comes from TransportSimulator, it already has metadata in 3rd element
+            ts = packet[0]
+            length = int(packet[1])
+            meta = None
+            
+            if len(packet) > 2:
+                meta = packet[2]
+            elif metadata_list and i < len(metadata_list):
+                meta = metadata_list[i]
+                
+            line = "{:.4f}".format(ts) +'\t' + "{}".format(length)
+            if meta:
+                 line += '\t' + json.dumps(meta)
             fo.write(line + ct.NL)
 
 # Add global variable
 fec_strategy = 'A'
+loss_rate = 0.0
+rtt = 0.1
 
-def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir):
+def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir, l_rate, r_time):
     global fec_strategy
     global client_min_dummy_pkt_num
     global server_min_dummy_pkt_num
@@ -116,6 +146,8 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     global max_wnd
     global min_wnd
     global output_dir
+    global loss_rate
+    global rtt
     
     fec_strategy = args_fec
     client_min_dummy_pkt_num = c_min
@@ -126,9 +158,14 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     max_wnd = max_w
     min_wnd = min_w
     output_dir = out_dir
+    loss_rate = l_rate
+    rtt = r_time
 
 def simulate(fdir):
     global fec_strategy
+    global loss_rate
+    global rtt
+    
     if not os.path.exists(fdir):
         return
     # logger.debug("Simulating trace {}".format(fdir))
@@ -136,18 +173,14 @@ def simulate(fdir):
     trace = load_trace(fdir)
     
     # Initialize FEC Injector
-    # Note: FRONT processes client and server separately or mixed? 
-    # The trace has direction. We should probably have separate injectors for IN and OUT if we want to be realistic,
-    # but for simplicity and following the plan, let's assume one global sequence or separate.
-    # Usually FEC is per-flow (direction).
-    # Let's create two injectors.
     injector_client = FECInjector(fec_strategy) # OUT
     injector_server = FECInjector(fec_strategy) # IN
     
     noisy_trace = RP(trace)
     
     # Post-process to apply FEC logic and generate metadata
-    metadata_list = []
+    # We construct a list of [time, length, metadata] to pass to TransportSimulator
+    processed_trace = []
     
     # Counters for packet IDs
     real_client_id = 0
@@ -157,10 +190,6 @@ def simulate(fdir):
         ts = packet[0]
         length = int(packet[1])
         meta = {}
-        
-        # Check if Real or Dummy
-        # In FRONT, dummy packets have length 888 (client) or -888 (server)
-        # Real packets have other lengths (usually 512 or -512)
         
         is_dummy_client = (length == 888)
         is_dummy_server = (length == -888)
@@ -178,10 +207,14 @@ def simulate(fdir):
                 real_server_id += 1
                 injector_server.process_real_packet(real_server_id)
         
-        metadata_list.append(meta)
+        processed_trace.append([ts, length, meta])
+
+    # Simulate Transport (Loss & Retransmission)
+    tsim = TransportSimulator(loss_rate, rtt)
+    final_trace = tsim.simulate(processed_trace)
 
     fname = fdir.split('/')[-1]
-    dump(noisy_trace, fname, metadata_list)
+    dump(final_trace, fname)
 
 def RP(trace):
     # format: [[time, pkt],[...]]
@@ -260,9 +293,11 @@ if __name__ == '__main__':
     logger.info(args)
     
     fec_strategy = args.fec_strategy
+    loss_rate = args.loss_rate
+    rtt = args.rtt
 
-    client_min_dummy_pkt_num = int(config.get('client_min_dummy_pkt_num',1))
-    server_min_dummy_pkt_num = int(config.get('server_min_dummy_pkt_num',1))
+    client_min_dummy_pkt_num = int(config.get('client_min_dummy_pkt_num',100))
+    server_min_dummy_pkt_num = int(config.get('server_min_dummy_pkt_num',100))
     client_dummy_pkt_num = int(config.get('client_dummy_pkt_num',300))
     server_dummy_pkt_num = int(config.get('server_dummy_pkt_num',300))
     start_padding_time = int(config.get('start_padding_time', 0))
@@ -294,6 +329,6 @@ if __name__ == '__main__':
     #     simulate(f)
 
     init_args = (fec_strategy, client_min_dummy_pkt_num, server_min_dummy_pkt_num, 
-                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir)
+                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir, loss_rate, rtt)
     parallel(flist, init_args)
     logger.info("Time: {}".format(time.time()-start))

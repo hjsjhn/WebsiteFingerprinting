@@ -21,6 +21,7 @@ import os
 # Add utils to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
 from fec_injector import FECInjector
+from transport_simulator import TransportSimulator
 
 
 logger = logging.getLogger('tamaraw')
@@ -220,6 +221,20 @@ def parse_arguments():
                         choices=['A', 'B', 'C', 'D'],
                         help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
+    parser.add_argument('--loss-rate',
+                        type=float,
+                        dest="loss_rate",
+                        metavar='<loss_rate>',
+                        default=0.0,
+                        help='Packet loss rate (0.0 - 1.0)')
+
+    parser.add_argument('--rtt',
+                        type=float,
+                        dest="rtt",
+                        metavar='<rtt>',
+                        default=0.1,
+                        help='Round Trip Time in seconds')
+
     args = parser.parse_args()
     #config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -286,8 +301,12 @@ if __name__ == '__main__':
             
             AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
 
+            # Apply Transport Simulation
+            tsim = TransportSimulator(args.loss_rate, args.rtt)
+            final_trace = tsim.simulate(list3)
+
             fout = open(os.path.join(foldout,fname), "w")
-            for x in list3:
+            for x in final_trace:
                 line = "{:.4f}\t{:d}".format(x[0],x[1])
                 if len(x) > 2 and x[2]: # If metadata exists
                      line += "\t" + json.dumps(x[2])
@@ -349,8 +368,12 @@ if __name__ == '__main__':
         
         AnoaPad(list2, list3, PadL, 0, injector_snd, injector_rcv)
 
+        # Apply Transport Simulation
+        tsim = TransportSimulator(args.loss_rate, args.rtt)
+        final_trace = tsim.simulate(list3)
+
         fout = open(os.path.join(foldout, fname), "w")
-        for x in list3:
+        for x in final_trace:
             line = "{:.4f}\t{:d}".format(x[0],x[1])
             if len(x) > 2 and x[2]: # If metadata exists
                  line += "\t" + json.dumps(x[2])

@@ -1,2 +1,2 @@
-2025-12-25 22:42:57,254 mergepad     INFO     Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpoda85mwa', section='default', noise='False', n=1, m=1, b=10, mode='fix', log='glue_test.log', fec_strategy='C')
-2025-12-25 22:42:57,255 mergepad     INFO     Creating output directory: /Users/hjsjhn/Library/CloudStorage/OneDrive-个人/PhD/Lessons/互联网体系结构及其安全基础/Project/WebsiteFingerprinting/defenses/results/mergepad_1225_2242
+2025-12-25 23:57:21,596 mergepad     INFO     Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpo1w_0nxd', section='default', noise='False', n=1, m=1, b=10, mode='fix', log='glue_test.log', fec_strategy='C', loss_rate=0.0, rtt=0.1)
+2025-12-25 23:57:21,597 mergepad     INFO     Creating output directory: /Users/hjsjhn/Library/CloudStorage/OneDrive-个人/PhD/Lessons/互联网体系结构及其安全基础/Project/WebsiteFingerprinting/defenses/results/mergepad_1225_2357

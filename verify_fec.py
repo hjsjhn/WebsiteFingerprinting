@@ -86,6 +86,23 @@ def run_test():
             print(f"Glue failed: {e}")
             return
 
+        print("Testing FRONT with Strategy B and 5% Loss...")
+        cmd = [
+            "python3", "defenses/front/main.py",
+            temp_input_dir,
+            "-format", ".cell",
+            "--fec-strategy", "B",
+            "--loss-rate", "0.05",
+            "--rtt", "0.1",
+            "--log", "front_loss_test.log"
+        ]
+        try:
+            subprocess.check_call(cmd, cwd=base_dir)
+            print("FRONT with Loss run successful.")
+        except subprocess.CalledProcessError as e:
+            print(f"FRONT with Loss failed: {e}")
+            return
+
         # Check output files
         # FRONT output
         

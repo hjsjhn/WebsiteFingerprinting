@@ -1,2 +1,3 @@
-2025-12-25 22:42:55,974 wtfpad       INFO     Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpoda85mwa', section='default', log='wtfpad_test.log', fec_strategy='D')
-2025-12-25 22:42:55,974 wtfpad       INFO     Configuration: {'interpolate': 'True', 'remove_tokens': 'True', 'stop_on_real': 'True', 'percentile': '0.5', 'fec_strategy': 'D'}
+2025-12-25 23:57:20,300 wtfpad INFO Arguments: Namespace(traces_path='/var/folders/62/lrk29dp10534x_rdks9jmy3c0000gn/T/tmpo1w_0nxd', section='default', log='wtfpad_test.log', fec_strategy='D', loss_rate=0.0, rtt=0.1)
+2025-12-25 23:57:20,300 wtfpad INFO Configuration: {'fec_strategy': 'D', 'loss_rate': 0.0, 'rtt': 0.1}
+2025-12-25 23:57:20,309 wtfpad INFO Output directory: /Users/hjsjhn/Library/CloudStorage/OneDrive-个人/PhD/Lessons/互联网体系结构及其安全基础/Project/WebsiteFingerprinting/defenses/wtfpad/results/wtfpad_1225_2357

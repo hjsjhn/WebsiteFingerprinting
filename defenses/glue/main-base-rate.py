@@ -21,6 +21,7 @@ import datetime
 # Add utils to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
 from fec_injector import FECInjector
+from transport_simulator import TransportSimulator
 
 logger = logging.getLogger('mergepad')
 
@@ -67,9 +68,21 @@ def dump(trace, fpath, metadata_list=None):
     '''Write trace packet into file `fpath`.'''
     with open(fpath, 'w') as fo:
         for i, packet in enumerate(trace):
-            line = "{}".format(packet[0]) +'\t' + "{}".format(int(packet[1]))
-            if metadata_list and i < len(metadata_list) and metadata_list[i]:
-                 line += '\t' + json.dumps(metadata_list[i])
+            # Packet format in trace: [time, length, metadata] (if processed by TransportSimulator)
+            # Or [time, length] + metadata_list[i] (if not)
+            
+            ts = packet[0]
+            length = int(packet[1])
+            meta = None
+            
+            if len(packet) > 2:
+                meta = packet[2]
+            elif metadata_list and i < len(metadata_list):
+                meta = metadata_list[i]
+                
+            line = "{}".format(ts) +'\t' + "{}".format(length)
+            if meta:
+                 line += '\t' + json.dumps(meta)
             fo.write(line + ct.NL)
 
 
@@ -102,7 +115,7 @@ def choose_site():
     noise_site = np.random.choice(list_names,1)[0]
     return noise_site
         
-def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A'):
+def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A', loss_rate=0.0, rtt=0.1):
     '''mergelist is a list of file names'''
     '''write in 2 files: the merged trace; the merged trace's name'''
     labels = ""
@@ -139,8 +152,7 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
     injector_snd = FECInjector(fec_strategy) # OUT
     injector_rcv = FECInjector(fec_strategy) # IN
     
-    final_trace = []
-    metadata_list = []
+    final_trace_list = []
     
     real_snd_id = 0
     real_rcv_id = 0
@@ -160,37 +172,24 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
             real_rcv_id += 1
             injector_rcv.process_real_packet(real_rcv_id)
             
-        final_trace.append(packet)
-        metadata_list.append({}) # Real packets have no metadata
+        final_trace_list.append([ts, length, {}])
         
         # Check for FEC injection
-        # We can inject FEC packets after real packets
-        # Note: Glue merges multiple flows. We treat it as one big flow here.
-        
-        # Check if we should inject dummy/FEC
-        # For simplicity, we check after every packet if we have pending FEC
-        
         # Client FEC
         meta_snd = injector_snd.generate_dummy_content()
         if meta_snd and meta_snd.get("type") != "DUMMY":
-             # Inject FEC packet
-             # Glue doesn't have a specific dummy size? 
-             # We can use a standard size or 0?
-             # Let's use 1 (smallest) or same as real?
-             # Glue packets are just length.
-             # Let's use 512 for dummy? Or 0?
-             # Glue seems to use actual lengths.
-             # We'll use 512 for dummy.
-             final_trace.append([ts + 0.0001, 512]) # Slightly after
-             metadata_list.append(meta_snd)
+             final_trace_list.append([ts + 0.0001, 512, meta_snd])
              
         # Server FEC
         meta_rcv = injector_rcv.generate_dummy_content()
         if meta_rcv and meta_rcv.get("type") != "DUMMY":
-             final_trace.append([ts + 0.0001, -512])
-             metadata_list.append(meta_rcv)
+             final_trace_list.append([ts + 0.0001, -512, meta_rcv])
 
-    dump(final_trace, join(output_dir, outputname+'.merge'), metadata_list)
+    # Apply Transport Simulation
+    tsim = TransportSimulator(loss_rate, rtt)
+    final_trace = tsim.simulate(final_trace_list)
+
+    dump(final_trace, join(output_dir, outputname+'.merge'))
     logger.debug("Merged trace is dumpped to %s.merge"%outputname)            
     return labels     
 
@@ -327,6 +326,20 @@ def parse_arguments():
                         choices=['A', 'B', 'C', 'D'],
                         help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
+    parser.add_argument('--loss-rate',
+                        type=float,
+                        dest="loss_rate",
+                        metavar='<loss_rate>',
+                        default=0.0,
+                        help='Packet loss rate (0.0 - 1.0)')
+
+    parser.add_argument('--rtt',
+                        type=float,
+                        dest="rtt",
+                        metavar='<rtt>',
+                        default=0.1,
+                        help='Round Trip Time in seconds')
+
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -372,10 +385,10 @@ def CreateRandomMergedTrace(traces_path, list_names, N, M,BaseRate):
     return mergedTrace, nums
 
 
-def parallel(output_dir, noise, mergedTrace, fec_strategy, n_jobs = 20): 
+def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, n_jobs = 20): 
     cnt = range(len(mergedTrace))
     l = len(cnt)
-    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l)
+    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l, [loss_rate]*l, [rtt]*l)
     pool = mp.Pool(n_jobs)
     l  = pool.map(work, param_dict)
     return l
@@ -383,8 +396,8 @@ def parallel(output_dir, noise, mergedTrace, fec_strategy, n_jobs = 20):
 
 def work(param):
     np.random.seed(datetime.datetime.now().microsecond)
-    output_dir, cnt, noise, T, fec_strategy = param[0],param[1], param[2], param[3], param[4]
-    return MergePad2(output_dir,  str(cnt) , noise, T, waiting_time=10, fec_strategy=fec_strategy)
+    output_dir, cnt, noise, T, fec_strategy, loss_rate, rtt = param[0],param[1], param[2], param[3], param[4], param[5], param[6]
+    return MergePad2(output_dir,  str(cnt) , noise, T, waiting_time=10, fec_strategy=fec_strategy, loss_rate=loss_rate, rtt=rtt)
 
 if __name__ == '__main__':
     # global list_names
@@ -406,7 +419,7 @@ if __name__ == '__main__':
     if args.mode == 'random':
         np.save(join(output_dir,'num.npy'),nums)
 
-    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, 20)
+    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, args.loss_rate, args.rtt, 20)
     # l = []
     # cnt = 0
     # for T in mergedTrace:

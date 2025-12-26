@@ -3,74 +3,32 @@ import configparser
 import logging
 import sys
 import os
-from os import mkdir
-from os.path import join, isdir
-from time import strftime
-import multiprocessing as mp
+import multiprocessing
+import json
 
-import constants as ct
 from adaptive import AdaptiveSimulator
-from pparser import parse, dump
-# from overheads import compute_overheads
+from pparser import parse
+
+# Add utils to path
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'utils'))
+from transport_simulator import TransportSimulator
 
 logger = logging.getLogger('wtfpad')
 
-
-def init_directories():
-    # Create a results dir if it doesn't exist yet
-    if not isdir(ct.RESULTS_DIR):
-        mkdir(ct.RESULTS_DIR)
-
-    # Define output directory
-    timestamp = strftime('%m%d_%H%M')
-    output_dir = join(ct.RESULTS_DIR, 'wtfpad_'+timestamp)
-    #logger.info("Creating output directory: %s" % output_dir)
-
-    # make the output directory
-    mkdir(output_dir)
-    return output_dir
-
-
-def config_logger(args):
-    # Set file
-    log_file = sys.stdout
-    if args.log != 'stdout':
-        log_file = open(args.log, 'w')
-    ch = logging.StreamHandler(log_file)
-
-    # Set logging format
-    ch.setFormatter(logging.Formatter(ct.LOG_FORMAT))
-    logger.addHandler(ch)
-
-    # Set level format
-    logger.setLevel(logging.INFO)
-
-
 def parse_arguments():
-    # Read configuration file
     conf_parser = configparser.RawConfigParser()
-    conf_parser.read(ct.CONFIG_FILE)
+    conf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'constants.conf')
+    conf_parser.read(conf_path)
 
-    parser = argparse.ArgumentParser(description='It simulates adaptive padding on a set of web traffic traces.')
-
-    parser.add_argument('traces_path',
-                        metavar='<traces path>',
+    parser = argparse.ArgumentParser(description='WTF-PAD Simulator')
+    parser.add_argument('traces_path', metavar='<traces path>',
                         help='Path to the directory with the traffic traces to be simulated.')
-
-    parser.add_argument('-c', '--config',
-                        dest="section",
-                        metavar='<config name>',
+    parser.add_argument('-c', '--config', dest="section", metavar='<config name>',
                         help="Adaptive padding configuration.",
-                        choices= conf_parser.sections(),
-                        default="default")
-
-    parser.add_argument('--log',
-                        type=str,
-                        dest="log",
-                        metavar='<log path>',
-                        default='stdout',
-                        help='path to the log file. It will print to stdout by default.')
-                        
+                        choices=conf_parser.sections(), default="default")
+    parser.add_argument('--log', type=str, dest="log", metavar='<log path>',
+                        default='stdout', help='path to the log file.')
+    
     parser.add_argument('--fec-strategy',
                         type=str,
                         dest="fec_strategy",
@@ -79,58 +37,118 @@ def parse_arguments():
                         choices=['A', 'B', 'C', 'D'],
                         help='FEC Strategy: A (Baseline), B (Bucket), C (LT-like), D (Sliding Window)')
 
+    parser.add_argument('--loss-rate',
+                        type=float,
+                        dest="loss_rate",
+                        metavar='<loss_rate>',
+                        default=0.0,
+                        help='Packet loss rate (0.0 - 1.0)')
+
+    parser.add_argument('--rtt',
+                        type=float,
+                        dest="rtt",
+                        metavar='<rtt>',
+                        default=0.1,
+                        help='Round Trip Time in seconds')
+
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
     
-    # Add FEC strategy to config
+    # Override config with args
     config['fec_strategy'] = args.fec_strategy
+    config['loss_rate'] = args.loss_rate
+    config['rtt'] = args.rtt
     
-    config_logger(args)
-
     return args, config
 
+def config_logger(args):
+    log_file = sys.stdout
+    if args.log != 'stdout':
+        log_file = open(args.log, 'w')
+    ch = logging.StreamHandler(log_file)
+    ch.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
+    logger.addHandler(ch)
+    logger.setLevel(logging.INFO)
 
-def process_trace(trace_path, output_dir, config):
-    # logger.info("Processing trace: %s", trace_path)
+def process_trace(file_path, config, output_dir):
     try:
+        fname = os.path.basename(file_path)
+        # logger.info(f"Processing {fname}")
+        
         # Parse trace
-        trace = parse(trace_path)
-
-        # Simulate adaptive padding
+        trace = parse(file_path)
+        
+        # Simulate
         simulator = AdaptiveSimulator(config)
-        trace = simulator.simulate(trace)
-
-        # Dump trace
-        output_name = os.path.basename(trace_path)
-        output_path = join(output_dir, output_name)
-        dump(trace, output_path)
-
-        # Compute overheads
-        # bw_ov, lat_ov = compute_overheads(trace_path, output_path)
-        # logger.info("Bandwidth overhead: %s", bw_ov)
-        # logger.info("Latency overhead: %s", lat_ov)
-
+        noisy_trace = simulator.simulate(trace)
+        
+        # Apply Transport Simulation (Loss & Retransmission)
+        loss_rate = float(config.get('loss_rate', 0.0))
+        rtt = float(config.get('rtt', 0.1))
+        
+        # Convert Packet objects to list format for TransportSimulator
+        # [time, length, metadata]
+        processed_trace = []
+        for p in noisy_trace:
+            processed_trace.append([p.timestamp, p.length, p.metadata])
+            
+        tsim = TransportSimulator(loss_rate, rtt)
+        final_trace = tsim.simulate(processed_trace)
+        
+        # Dump
+        output_path = os.path.join(output_dir, fname)
+        with open(output_path, 'w') as f:
+            for pkt in final_trace:
+                ts = pkt[0]
+                length = int(pkt[1])
+                meta = pkt[2] if len(pkt) > 2 else {}
+                
+                line = f"{ts:.4f}\t{length}"
+                if meta:
+                    line += f"\t{json.dumps(meta)}"
+                f.write(line + '\n')
+                
     except Exception as e:
-        logger.exception(e)
-
+        logger.error(f"Error processing {file_path}: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
     args, config = parse_arguments()
-    logger.info("Arguments: %s" % args)
-    logger.info("Configuration: %s" % config)
-
-    output_dir = init_directories()
-
-    # Get list of traces
-    traces = [join(args.traces_path, f) for f in os.listdir(args.traces_path) if f.endswith('.cell')]
+    config_logger(args)
     
+    logger.info(f"Arguments: {args}")
+    logger.info(f"Configuration: {config}")
+
+    # Output directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    results_dir = os.path.join(base_dir, 'results')
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+        
+    timestamp = os.popen('date +%m%d_%H%M').read().strip()
+    output_dir = os.path.join(results_dir, f"wtfpad_{timestamp}")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    logger.info(f"Output directory: {output_dir}")
+
+    # Get list of files
+    if os.path.isdir(args.traces_path):
+        files = [os.path.join(args.traces_path, f) for f in os.listdir(args.traces_path) if f.endswith('.cell')]
+    else:
+        files = [args.traces_path]
+        
     # Run simulation
-    pool = mp.Pool()
-    for trace_path in traces:
-        pool.apply_async(process_trace, args=(trace_path, output_dir, config))
+    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+    
+    tasks = []
+    for f in files:
+        tasks.append((f, config, output_dir))
+        
+    pool.starmap(process_trace, tasks)
     pool.close()
     pool.join()
-
 
 if __name__ == '__main__':
     main()
