@@ -98,6 +98,20 @@ def parse_arguments():
                         default=0.1,
                         help='Round Trip Time in seconds')
 
+    parser.add_argument('--max-inflight',
+                        type=int,
+                        dest="max_inflight",
+                        metavar='<max_inflight>',
+                        default=20,
+                        help='Max inflight packets (CWND) for congestion control simulation')
+
+    parser.add_argument('--seed',
+                        type=int,
+                        dest="seed",
+                        metavar='<seed>',
+                        default=None,
+                        help='Random seed for deterministic simulation')
+
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -135,8 +149,10 @@ def dump(trace, fname, metadata_list=None):
 fec_strategy = 'A'
 loss_rate = 0.0
 rtt = 0.1
+max_inflight = 20
+seed = None
 
-def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir, l_rate, r_time):
+def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir, l_rate, r_time, m_inflight, s_seed):
     global fec_strategy
     global client_min_dummy_pkt_num
     global server_min_dummy_pkt_num
@@ -148,6 +164,8 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     global output_dir
     global loss_rate
     global rtt
+    global max_inflight
+    global seed
     
     fec_strategy = args_fec
     client_min_dummy_pkt_num = c_min
@@ -160,16 +178,27 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     output_dir = out_dir
     loss_rate = l_rate
     rtt = r_time
+    max_inflight = m_inflight
+    seed = s_seed
 
 def simulate(fdir):
     global fec_strategy
     global loss_rate
     global rtt
+    global max_inflight
+    global seed
+    global output_dir
     
     if not os.path.exists(fdir):
         return
     # logger.debug("Simulating trace {}".format(fdir))
-    np.random.seed(datetime.datetime.now().microsecond)
+    
+    # Use provided seed or random
+    if seed is not None:
+        np.random.seed(seed)
+    else:
+        np.random.seed(datetime.datetime.now().microsecond)
+        
     trace = load_trace(fdir)
     
     # Initialize FEC Injector
@@ -209,11 +238,14 @@ def simulate(fdir):
         
         processed_trace.append([ts, length, meta])
 
+    # Generate Debug Log Path
+    fname = fdir.split('/')[-1]
+    debug_log_path = join(output_dir, fname + '.debug.log')
+
     # Simulate Transport (Loss & Retransmission)
-    tsim = TransportSimulator(loss_rate, rtt)
+    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path)
     final_trace = tsim.simulate(processed_trace)
 
-    fname = fdir.split('/')[-1]
     dump(final_trace, fname)
 
 def RP(trace):
@@ -295,6 +327,8 @@ if __name__ == '__main__':
     fec_strategy = args.fec_strategy
     loss_rate = args.loss_rate
     rtt = args.rtt
+    max_inflight = args.max_inflight
+    seed = args.seed
 
     client_min_dummy_pkt_num = int(config.get('client_min_dummy_pkt_num',100))
     server_min_dummy_pkt_num = int(config.get('server_min_dummy_pkt_num',100))
@@ -329,6 +363,6 @@ if __name__ == '__main__':
     #     simulate(f)
 
     init_args = (fec_strategy, client_min_dummy_pkt_num, server_min_dummy_pkt_num, 
-                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir, loss_rate, rtt)
+                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir, loss_rate, rtt, max_inflight, seed)
     parallel(flist, init_args)
     logger.info("Time: {}".format(time.time()-start))

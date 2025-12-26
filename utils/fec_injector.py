@@ -15,6 +15,8 @@ class FECInjector:
         self.packets_in_current_block = 0
         
         # Strategy C: LT-like Random Subset
+        if self.strategy == 'C':
+            self.window_size = 10000 # Large window for "Global Scope"
         self.history_buffer = [] # Stores packet IDs
         
         # Strategy D: Smart Sliding Window RLNC
@@ -92,12 +94,23 @@ class FECInjector:
                 metadata["info"] = "Empty Buffer"
                 return metadata
             
+            # Seed-based Random Selection (LT-like)
             degree = random.randint(1, len(self.history_buffer))
-            selected_indices = random.sample(range(len(self.history_buffer)), degree)
-            selected_ids = [self.history_buffer[i] for i in selected_indices]
+            seed = random.randint(0, 2**32 - 1)
             
+            # We don't send the full list of IDs, just the seed and range info.
+            # Ideally, the receiver needs to know WHICH packets are in the history buffer.
+            # To simplify, we assume the history buffer is a contiguous range of IDs [min_id, max_id].
+            # This is a reasonable approximation if we assume the buffer stores the last N packets.
+            
+            min_id = min(self.history_buffer)
+            max_id = max(self.history_buffer)
+            
+            metadata["seed"] = seed
             metadata["degree"] = degree
-            metadata["covered_ids"] = selected_ids
+            metadata["min_id"] = min_id
+            metadata["max_id"] = max_id
+            metadata["buffer_size"] = len(self.history_buffer)
             return metadata
 
         elif self.strategy == 'D':
