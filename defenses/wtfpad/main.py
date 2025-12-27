@@ -51,13 +51,38 @@ def parse_arguments():
                         default=0.1,
                         help='Round Trip Time in seconds')
 
+    parser.add_argument('--max-inflight',
+                        type=int,
+                        dest="max_inflight",
+                        metavar='<max_inflight>',
+                        default=20,
+                        help='Max inflight packets')
+
+    parser.add_argument('--seed',
+                        type=int,
+                        dest="seed",
+                        metavar='<seed>',
+                        default=None,
+                        help='Random seed')
+
+    parser.add_argument('--external-fec-rate',
+                        type=float,
+                        dest="external_fec_rate",
+                        metavar='<rate>',
+                        default=0.0,
+                        help='External FEC rate (0.0 - 1.0)')
+
     args = parser.parse_args()
-    config = dict(conf_parser._sections[args.section])
+    # config = dict(conf_parser._sections[args.section])
+    config = dict(conf_parser[args.section])
     
     # Override config with args
     config['fec_strategy'] = args.fec_strategy
     config['loss_rate'] = args.loss_rate
     config['rtt'] = args.rtt
+    config['max_inflight'] = args.max_inflight
+    config['seed'] = args.seed
+    config['external_fec_rate'] = args.external_fec_rate
     
     return args, config
 
@@ -85,6 +110,10 @@ def process_trace(file_path, config, output_dir):
         # Apply Transport Simulation (Loss & Retransmission)
         loss_rate = float(config.get('loss_rate', 0.0))
         rtt = float(config.get('rtt', 0.1))
+        max_inflight = int(config.get('max_inflight', 20))
+        seed = config.get('seed')
+        if seed is not None:
+             seed = int(seed)
         
         # Convert Packet objects to list format for TransportSimulator
         # [time, length, metadata]
@@ -94,7 +123,8 @@ def process_trace(file_path, config, output_dir):
             
         # Debug log path
         debug_log_path = os.path.join(output_dir, fname + '.debug.log')
-        tsim = TransportSimulator(loss_rate, rtt, debug_log_path=debug_log_path)
+        external_fec_rate = float(config.get('external_fec_rate', 0.0))
+        tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path, external_fec_rate=external_fec_rate)
         final_trace = tsim.simulate(processed_trace)
         
         # Dump
@@ -128,7 +158,7 @@ def main():
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
         
-    timestamp = os.popen('date +%m%d_%H%M').read().strip()
+    timestamp = os.popen('date +%m%d_%H%M%S').read().strip()
     output_dir = os.path.join(results_dir, f"wtfpad_{timestamp}")
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

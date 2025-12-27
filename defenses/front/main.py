@@ -28,7 +28,7 @@ def init_directories():
         makedirs(ct.RESULTS_DIR)
 
     # Define output directory
-    timestamp = strftime('%m%d_%H%M')
+    timestamp = strftime('%m%d_%H%M%S')
     output_dir = join(ct.RESULTS_DIR, 'ranpad2_'+timestamp)
     makedirs(output_dir, exist_ok=True)
 
@@ -112,6 +112,13 @@ def parse_arguments():
                         default=None,
                         help='Random seed for deterministic simulation')
 
+    parser.add_argument('--external-fec-rate',
+                        type=float,
+                        dest="external_fec_rate",
+                        metavar='<rate>',
+                        default=0.0,
+                        help='External FEC rate (0.0 - 1.0)')
+
     args = parser.parse_args()
     # config = dict(conf_parser._sections[args.section])
     config = dict(conf_parser[args.section])
@@ -152,8 +159,9 @@ loss_rate = 0.0
 rtt = 0.1
 max_inflight = 20
 seed = None
+external_fec_rate = 0.0
 
-def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir, l_rate, r_time, m_inflight, s_seed):
+def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min_w, out_dir, l_rate, r_time, m_inflight, s_seed, ext_fec_rate):
     global fec_strategy
     global client_min_dummy_pkt_num
     global server_min_dummy_pkt_num
@@ -167,6 +175,7 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     global rtt
     global max_inflight
     global seed
+    global external_fec_rate
     
     fec_strategy = args_fec
     client_min_dummy_pkt_num = c_min
@@ -181,6 +190,7 @@ def init_worker(args_fec, c_min, s_min, c_dummy, s_dummy, start_time, max_w, min
     rtt = r_time
     max_inflight = m_inflight
     seed = s_seed
+    external_fec_rate = ext_fec_rate
 
 def simulate(fdir):
     global fec_strategy
@@ -244,7 +254,7 @@ def simulate(fdir):
     debug_log_path = join(output_dir, fname + '.debug.log')
 
     # Simulate Transport (Loss & Retransmission)
-    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path)
+    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path, external_fec_rate=external_fec_rate)
     final_trace = tsim.simulate(processed_trace)
 
     dump(final_trace, fname)
@@ -369,6 +379,6 @@ if __name__ == '__main__':
     #     simulate(f)
 
     init_args = (fec_strategy, client_min_dummy_pkt_num, server_min_dummy_pkt_num, 
-                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir, loss_rate, rtt, max_inflight, seed)
+                 client_dummy_pkt_num, server_dummy_pkt_num, start_padding_time, max_wnd, min_wnd, output_dir, loss_rate, rtt, max_inflight, seed, args.external_fec_rate)
     parallel(flist, init_args)
     logger.info("Time: {}".format(time.time()-start))

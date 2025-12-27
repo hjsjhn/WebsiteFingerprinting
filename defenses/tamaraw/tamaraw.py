@@ -175,12 +175,12 @@ def init_directories():
         os.mkdir(ct.RESULTS_DIR)
 
     # Define output directory
-    timestamp = strftime('%m%d_%H%M')
+    timestamp = strftime('%m%d_%H%M%S')
     output_dir = os.path.join(ct.RESULTS_DIR, 'tamaraw_'+timestamp)
     #logger.info("Creating output directory: %s" % output_dir)
 
     # make the output directory
-    os.mkdir(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
     return output_dir
 
@@ -241,6 +241,27 @@ def parse_arguments():
                         metavar='<padl>',
                         default=50,
                         help='Padding Length (Controls overhead)')
+
+    parser.add_argument('--max-inflight',
+                        type=int,
+                        dest="max_inflight",
+                        metavar='<max_inflight>',
+                        default=20,
+                        help='Max inflight packets')
+
+    parser.add_argument('--seed',
+                        type=int,
+                        dest="seed",
+                        metavar='<seed>',
+                        default=None,
+                        help='Random seed')
+
+    parser.add_argument('--external-fec-rate',
+                        type=float,
+                        dest="external_fec_rate",
+                        metavar='<rate>',
+                        default=0.0,
+                        help='External FEC rate (0.0 - 1.0)')
 
     args = parser.parse_args()
     #config = dict(conf_parser._sections[args.section])
@@ -313,9 +334,9 @@ if __name__ == '__main__':
         # Run Tamaraw
         AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
 
-        # Apply Transport Simulation
+        # Simulate Transport (Loss & Retransmission)
         debug_log_path = os.path.join(foldout, fname + '.debug.log')
-        tsim = TransportSimulator(args.loss_rate, args.rtt, debug_log_path=debug_log_path)
+        tsim = TransportSimulator(args.loss_rate, args.rtt, max_inflight=args.max_inflight, seed=args.seed, debug_log_path=debug_log_path, external_fec_rate=args.external_fec_rate)
         final_trace = tsim.simulate(list3)
 
         fout = open(os.path.join(foldout,fname), "w")

@@ -263,9 +263,15 @@ class AdaptiveSimulator(object):
         #  #tokens in inf bin = #tokens in other bins / (N - 1)
 
         if 'gap' in name:
-            burst_length = int(inf_config)
+            burst_length = float(inf_config)
             other_toks = self.sum_noinf_toks(distrib)
-            distrib[INF] = ceil(other_toks / (burst_length - 1))
+            if burst_length <= 1.0:
+                 # Avoid division by zero or negative tokens. 
+                 # If burst length <= 1, it implies we should stop often.
+                 # Setting INF = other_toks implies p=0.5 (stop half the time).
+                 distrib[INF] = other_toks
+            else:
+                 distrib[INF] = ceil(other_toks / (burst_length - 1))
 
         # BURSTS
         # IN (server)

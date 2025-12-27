@@ -115,7 +115,7 @@ def choose_site():
     noise_site = np.random.choice(list_names,1)[0]
     return noise_site
         
-def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A', loss_rate=0.0, rtt=0.1, max_inflight=20, seed=None):
+def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A', loss_rate=0.0, rtt=0.1, max_inflight=20, seed=None, external_fec_rate=0.0):
     '''mergelist is a list of file names'''
     '''write in 2 files: the merged trace; the merged trace's name'''
     labels = ""
@@ -188,7 +188,7 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
     # Apply Transport Simulation
     # Apply Transport Simulation
     debug_log_path = join(output_dir, outputname+'.debug.log')
-    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path)
+    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path, external_fec_rate=external_fec_rate)
     final_trace = tsim.simulate(final_trace_list)
 
     dump(final_trace, join(output_dir, outputname+'.merge'))
@@ -356,6 +356,13 @@ def parse_arguments():
                         default=None,
                         help='Random seed')
 
+    parser.add_argument('--external-fec-rate',
+                        type=float,
+                        dest="external_fec_rate",
+                        metavar='<rate>',
+                        default=0.0,
+                        help='External FEC rate (0.0 - 1.0)')
+
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -401,7 +408,7 @@ def CreateRandomMergedTrace(traces_path, list_names, N, M,BaseRate):
     return mergedTrace, nums
 
 
-def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, max_inflight, seed, n_jobs = 20): 
+def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, max_inflight, seed, external_fec_rate, n_jobs = 20): 
     cnt = range(len(mergedTrace))
     l = len(cnt)
     
@@ -411,14 +418,14 @@ def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, max_i
     else:
         seeds = [None] * l
         
-    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l, [loss_rate]*l, [rtt]*l, [max_inflight]*l, seeds)
+    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l, [loss_rate]*l, [rtt]*l, [max_inflight]*l, seeds, [external_fec_rate]*l)
     pool = mp.Pool(n_jobs)
     l  = pool.map(work, param_dict)
     return l
 
 
 def work(param):
-    output_dir, cnt, noise, T, fec_strategy, loss_rate, rtt, max_inflight, seed = param
+    output_dir, cnt, noise, T, fec_strategy, loss_rate, rtt, max_inflight, seed, external_fec_rate = param
     
     if seed is not None:
         np.random.seed(seed)
@@ -426,7 +433,7 @@ def work(param):
     else:
         np.random.seed(datetime.datetime.now().microsecond)
         
-    return MergePad2(output_dir, str(cnt), noise, T, waiting_time=10, fec_strategy=fec_strategy, loss_rate=loss_rate, rtt=rtt, max_inflight=max_inflight, seed=seed)
+    return MergePad2(output_dir, str(cnt), noise, T, waiting_time=10, fec_strategy=fec_strategy, loss_rate=loss_rate, rtt=rtt, max_inflight=max_inflight, seed=seed, external_fec_rate=external_fec_rate)
 
 if __name__ == '__main__':
     # global list_names
@@ -451,7 +458,7 @@ if __name__ == '__main__':
     if args.mode == 'random':
         np.save(join(output_dir,'num.npy'),nums)
 
-    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, args.loss_rate, args.rtt, args.max_inflight, args.seed, 20)
+    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, args.loss_rate, args.rtt, args.max_inflight, args.seed, args.external_fec_rate, 20)
     # l = []
     # cnt = 0
     # for T in mergedTrace:

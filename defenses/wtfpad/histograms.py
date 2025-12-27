@@ -111,6 +111,18 @@ class Histogram:
             # if there is none, continue removing tokens on the right.
             if label not in pos_counts:
                 #logger.debug("%s %s" % (pos_counts, self.hist))
+                if not pos_counts:
+                    # If no positive counts, we can't remove anything. 
+                    # This might happen if histogram is empty but refill hasn't happened yet?
+                    # Or if all counts are 0.
+                    # Just return or refill.
+                    if sum(self.hist.values()) == 0:
+                        self.refill_histogram()
+                        pos_counts = [l for l in self.labels if self.hist[l] > 0]
+                        if not pos_counts: return # Still empty?
+                    else:
+                        return # Should not happen if sum > 0
+
                 if label < pos_counts[0]:
                     label = pos_counts[0]
                 else:
@@ -154,6 +166,8 @@ class Histogram:
     def random_sample(self):
         """Draw and return a sample from the histogram."""
         total_tokens = int(sum(self.hist.values()))
+        if total_tokens == 0:
+            return ct.INF
         prob = randint(1, total_tokens) if total_tokens > 0 else 0
         for i, label_i in enumerate(self.labels):
             prob -= self.hist[label_i]

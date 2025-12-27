@@ -4,16 +4,19 @@ import json
 import logging
 import sys
 
+import math
+
 logger = logging.getLogger('transport_sim')
 logging.basicConfig(level=logging.INFO)
 
 class TransportSimulator:
-    def __init__(self, loss_rate=0.0, rtt=0.1, max_inflight=20, seed=None, debug_log_path=None):
+    def __init__(self, loss_rate=0.0, rtt=0.1, max_inflight=20, seed=None, debug_log_path=None, external_fec_rate=0.0):
         self.loss_rate = loss_rate
         self.rtt = rtt
         self.max_inflight = max_inflight
         self.seed = seed
         self.debug_log_path = debug_log_path
+        self.external_fec_rate = external_fec_rate
         if seed:
             random.seed(seed)
             
@@ -37,8 +40,74 @@ class TransportSimulator:
             return False
         return True
 
+    def _apply_external_fec(self, trace):
+        new_trace = []
+        block_size = 10
+        
+        # State per direction
+        # 1: Client->Server, -1: Server->Client
+        buffers = {1: [], -1: []}
+        block_ids = {1: 0, -1: 0}
+        
+        for p in trace:
+            new_trace.append(p)
+            
+            ts = p[0]
+            length = p[1]
+            meta = p[2] if len(p) > 2 else {}
+            
+            # Check if real
+            is_real = True
+            if meta and meta.get('type') in ['FEC', 'DUMMY']:
+                is_real = False
+            
+            if is_real:
+                direction = 1 if length > 0 else -1
+                buffers[direction].append(p)
+                
+                if len(buffers[direction]) == block_size:
+                    # Inject FEC
+                    fec_count = int(math.ceil(block_size * self.external_fec_rate))
+                    current_block_id = block_ids[direction]
+                    for i in range(fec_count):
+                        fec_meta = {
+                            'type': 'FEC',
+                            'block_id': current_block_id,
+                            'protected_count': block_size,
+                            'info': 'External FEC'
+                        }
+                        fec_len = 1 if direction == 1 else -1 
+                        new_trace.append([ts, fec_len, fec_meta])
+                    
+                    buffers[direction] = []
+                    block_ids[direction] += 1
+        
+        # Flush remaining buffers
+        for direction in [1, -1]:
+            if buffers[direction]:
+                count = len(buffers[direction])
+                current_fec_count = int(math.ceil(count * self.external_fec_rate))
+                if current_fec_count > 0:
+                    last_p = buffers[direction][-1]
+                    ts = last_p[0]
+                    current_block_id = block_ids[direction]
+                    for i in range(current_fec_count):
+                        fec_meta = {
+                            'type': 'FEC',
+                            'block_id': current_block_id,
+                            'protected_count': count,
+                            'info': 'External FEC Partial'
+                        }
+                        fec_len = 1 if direction == 1 else -1
+                        new_trace.append([ts, fec_len, fec_meta])
+        
+        return new_trace
+
     def simulate(self, trace):
         random.seed(self.seed)
+        
+        if self.external_fec_rate > 0:
+            trace = self._apply_external_fec(trace)
         
         if self.debug_log_path:
             try:

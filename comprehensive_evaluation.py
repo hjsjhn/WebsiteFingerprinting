@@ -23,7 +23,7 @@ DEFENSES = [
     {'name': 'glue_default', 'cmd': 'defenses/glue/main-base-rate.py', 'args': ['-mode', 'fix', '-n', '100', '-m', '1', '-b', '10', '-noise', 'False']}
 ]
 
-STRATEGIES = ['A', 'B', 'C', 'D']
+STRATEGIES = ['A', 'B', 'C', 'D', 'O10', 'O30', 'O50']
 MAX_INFLIGHT_VALUES = [5, 20]
 LOSS_RATES = [0.02, 0.05, 0.10, 0.20]
 
@@ -37,10 +37,23 @@ def run_simulation(params):
     
     log_file = os.path.join(LOG_DIR, f"{defense['name']}_{strategy}_inf{inflight}_loss{loss_rate}_{os.path.basename(trace_file)}.log")
     
+    fec_strategy = strategy
+    external_fec_rate = 0.0
+    
+    if strategy.startswith('O'):
+        fec_strategy = 'A'
+        try:
+            rate_percent = int(strategy[1:])
+            external_fec_rate = rate_percent / 100.0
+        except ValueError:
+            print(f"Invalid strategy format: {strategy}")
+            return None
+
     cmd = [
         "python3", defense['cmd'],
         trace_file, # Always pass the full path (DATA_DIR)
-        "--fec-strategy", strategy,
+        "--fec-strategy", fec_strategy,
+        "--external-fec-rate", str(external_fec_rate),
         "--max-inflight", str(inflight),
         "--loss-rate", str(loss_rate),
         "--seed", str(seed),
@@ -203,6 +216,30 @@ def prepare_sample_data(source_dir, target_dir, sample_size=100):
         shutil.copy(os.path.join(source_dir, f), os.path.join(target_dir, f))
     print("Sampling complete.")
 
+def load_existing_results(filepath):
+    existing_data = {}
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Create a unique key for each task
+                    # Key: (Defense, Strategy, MaxInflight, LossRate)
+                    try:
+                        key = (
+                            row['Defense'],
+                            row['Strategy'],
+                            int(row['MaxInflight']),
+                            float(row['LossRate'])
+                        )
+                        existing_data[key] = row
+                    except (ValueError, KeyError):
+                        continue # Skip malformed rows
+            print(f"Loaded {len(existing_data)} existing results from {filepath}")
+        except Exception as e:
+            print(f"Warning: Could not read existing results: {e}")
+    return existing_data
+
 def main():
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
@@ -238,13 +275,31 @@ def main():
     results = []
     total = len(tasks)
     
+    # Load existing results to skip completed tasks
+    existing_results = load_existing_results(RESULTS_FILE)
+    
     with open(RESULTS_FILE, 'w', newline='') as csvfile:
         fieldnames = ['Defense', 'Strategy', 'MaxInflight', 'LossRate', 'AvgRecovered', 'AvgRetransmitted', 'AvgFCT', 'AvgLatency', 'TotalFEC', 'TotalDummy', 'Count']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         
         for i, task in enumerate(tasks):
-            print(f"Processing {i+1}/{total}: {task[0]['name']} | {task[1]} | Inf={task[2]} | Loss={task[3]}")
+            defense_name = task[0]['name']
+            strategy = task[1]
+            inflight = task[2]
+            loss_rate = task[3]
+            
+            print(f"Processing {i+1}/{total}: {defense_name} | {strategy} | Inf={inflight} | Loss={loss_rate}")
+            
+            # Check if result already exists
+            key = (defense_name, strategy, inflight, loss_rate)
+            if key in existing_results:
+                print("  -> Skipping... found existing results")
+                writer.writerow(existing_results[key])
+                csvfile.flush()
+                results.append(existing_results[key])
+                continue
+
             res = run_simulation(task)
             if res:
                 writer.writerow(res)
