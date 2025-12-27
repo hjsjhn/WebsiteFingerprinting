@@ -149,18 +149,56 @@ def run_simulation(params):
         print(f"Error: {e}")
         return None
 
+def prepare_sample_data(source_dir, target_dir, sample_size=100):
+    """
+    Ensures that the target_dir exists and contains sample_size files from source_dir.
+    """
+    if os.path.exists(target_dir):
+        # Check if it has enough files
+        files = [f for f in os.listdir(target_dir) if f.endswith('.cell')]
+        if len(files) >= sample_size:
+            print(f"Sample directory {target_dir} already exists with {len(files)} files.")
+            return
+
+        print(f"Sample directory {target_dir} exists but has fewer than {sample_size} files. Re-sampling...")
+        import shutil
+        shutil.rmtree(target_dir)
+    
+    if not os.path.exists(source_dir):
+        print(f"Error: Source directory {source_dir} does not exist. Cannot create sample.")
+        sys.exit(1)
+
+    print(f"Creating sample directory {target_dir} with {sample_size} files from {source_dir}...")
+    os.makedirs(target_dir)
+    
+    all_files = [f for f in os.listdir(source_dir) if f.endswith('.cell')]
+    if len(all_files) < sample_size:
+        print(f"Warning: Source has only {len(all_files)} files, using all of them.")
+        sample_files = all_files
+    else:
+        sample_files = random.sample(all_files, sample_size)
+    
+    import shutil
+    for f in sample_files:
+        shutil.copy(os.path.join(source_dir, f), os.path.join(target_dir, f))
+    print("Sampling complete.")
+
 def main():
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
         
-    # Generate tasks
+    # Ensure sample data exists
+    SOURCE_DATA_DIR = "data/walkiebatch"
+    prepare_sample_data(SOURCE_DATA_DIR, DATA_DIR, 100)
+
+    # Generate all combinations
     tasks = []
     seed = 12345 # Fixed seed for reproducibility across runs
     
     # We run on the whole directory, so trace_file argument is just a placeholder or the dir itself
     # But wait, if we run on the whole directory, we only need ONE task per configuration.
     
-    print(f"Generating tasks for {len(DEFENSES)} defenses, {len(STRATEGIES)} strategies, {len(MAX_INFLIGHT_VALUES)} inflight values, {len(LOSS_RATES)} loss rates...")
+    print("Generating tasks for 6 defenses, 4 strategies, 2 inflight values, 4 loss rates...")
     
     for defense in DEFENSES:
         for strategy in STRATEGIES:
