@@ -113,7 +113,8 @@ def parse_arguments():
                         help='Random seed for deterministic simulation')
 
     args = parser.parse_args()
-    config = dict(conf_parser._sections[args.section])
+    # config = dict(conf_parser._sections[args.section])
+    config = dict(conf_parser[args.section])
     config_logger(args)
     return args,config
 
