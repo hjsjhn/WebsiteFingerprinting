@@ -3,6 +3,7 @@ __pycache__
 
 results/
 evaluation_logs/
+*.log
 
 *.pyc
 df_train.sh

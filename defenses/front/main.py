@@ -345,12 +345,17 @@ if __name__ == '__main__':
     print("client_dummy_pkt_num: {}\nserver_dummy_pkt_num: {}".format(client_dummy_pkt_num,server_dummy_pkt_num))
     print("max_wnd: {}\nmin_wnd: {}".format(max_wnd,min_wnd))
     print("start_padding_time:", start_padding_time)
-    flist  = []
-    for i in range(MON_SITE_NUM):
-        for j in range(MON_INST_NUM):
-            flist.append(join(args.p, str(i)+'-'+str(j)+args.format))
-    for i in range(UNMON_SITE_NUM):
-        flist.append(join(args.p, str(i)+args.format))
+    # flist  = []
+    # for i in range(MON_SITE_NUM):
+    #     for j in range(MON_INST_NUM):
+    #         flist.append(join(args.p, str(i)+'-'+str(j)+args.format))
+    # for i in range(UNMON_SITE_NUM):
+    #     flist.append(join(args.p, str(i)+args.format))
+    
+    # Iterate over all files in the directory
+    import glob
+    flist = glob.glob(join(args.p, '*' + args.format))
+    logger.info(f"Found {len(flist)} files to process.")
 
     # Init run directories
     output_dir = init_directories()

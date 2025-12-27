@@ -281,80 +281,16 @@ if __name__ == '__main__':
     tot_old_latency = 0.0
 
 
-    for site in range(0, MON_SITE_NUM):
-        for inst in range(0, MON_INST_NUM):
-            fname = str(site) + "-" + str(inst)+".cell"
-            logger.info('Simulating %s...'%fname)
-            packets = []
-            with open(os.path.join(args.traces_path, fname), "r") as f:
-                lines = f.readlines()
-                starttime = float(lines[0].split("\t")[0])
-                for x in lines:
-                    x = x.split("\t")
-                    packets.append([float(x[0]) - starttime, int(x[1])])
-            
-            # Initialize injectors
-            injector_snd = FECInjector(args.fec_strategy)
-            injector_rcv = FECInjector(args.fec_strategy)
-            
-            list2 = [packets[0]]
-            parameters = [""]
-            
-            Anoa(packets, list2, parameters, injector_snd, injector_rcv)
-            list2 = sorted(list2, key = lambda list2: list2[0])
-            anoad.append(list2)
+    # Iterate over all files in the directory
+    import glob
+    files = glob.glob(os.path.join(args.traces_path, '*.cell'))
+    logger.info(f"Found {len(files)} files to process.")
 
-            list3 = []
-            
-            # Run Tamaraw
-            AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
-
-            # Apply Transport Simulation
-            tsim = TransportSimulator(args.loss_rate, args.rtt)
-            final_trace = tsim.simulate(list3)
-
-            fout = open(os.path.join(foldout,fname), "w")
-            for x in final_trace:
-                line = "{:.4f}\t{:d}".format(x[0],x[1])
-                if len(x) > 2 and x[2]: # If metadata exists
-                     line += "\t" + json.dumps(x[2])
-                fout.write(line + "\n")
-            fout.close()
-
-            #latency:
-            old = packets[-1][0] - packets[0][0]
-            #new definition of time latency:
-            new = list2[-1][0] -list2[0][0]
-            #new = list3[-1][0] -list3[0][0]
-
-            #in case there is precision loss
-            if new < old:
-                new = old
-
-            latency = 1.0*new/old
-            latencies.append(latency)
-            tot_new_latency += new
-            tot_old_latency += old
-
-            #sizes:
-            old = sum([abs(p[1]) for p in packets])
-            mid = sum([abs(p[1]) for p in list2])
-            new = sum([abs(p[1]) for p in list3])
-            logger.info("old size:%d,mid size:%d, new size:%d"%(old,mid, new))
-            size = 1.0*new/old 
-            sizes.append(size)
-            tot_new_size += new
-            tot_old_size += old
-            #bandwidth
-            # bandwidth = size/latency * 1.0
-            # bandwidths.append(bandwidth)
-            logger.info("Latency overhead: %.4f,size overhead:%.4f"%(latency,size))
-
-    for site in range(0, UNMON_SITE_NUM):
-        fname = str(site)+".cell"
-        logger.info('Simulating %s..'%fname)
+    for file_path in files:
+        fname = os.path.basename(file_path)
+        logger.info('Simulating %s...'%fname)
         packets = []
-        with open(os.path.join(args.traces_path,fname), "r") as f:
+        with open(file_path, "r") as f:
             lines = f.readlines()
             starttime = float(lines[0].split("\t")[0])
             for x in lines:
@@ -374,58 +310,53 @@ if __name__ == '__main__':
 
         list3 = []
         
+        # Run Tamaraw
         AnoaPad(list2, list3, args.padl, 0, injector_snd, injector_rcv)
 
-        # Apply Transport Simulation
         # Apply Transport Simulation
         debug_log_path = os.path.join(foldout, fname + '.debug.log')
         tsim = TransportSimulator(args.loss_rate, args.rtt, debug_log_path=debug_log_path)
         final_trace = tsim.simulate(list3)
 
-        fout = open(os.path.join(foldout, fname), "w")
+        fout = open(os.path.join(foldout,fname), "w")
         for x in final_trace:
             line = "{:.4f}\t{:d}".format(x[0],x[1])
             if len(x) > 2 and x[2]: # If metadata exists
-                 line += "\t" + json.dumps(x[2])
+                    line += "\t" + json.dumps(x[2])
             fout.write(line + "\n")
         fout.close()
+
         #latency:
         old = packets[-1][0] - packets[0][0]
         #new definition of time latency:
         new = list2[-1][0] -list2[0][0]
-        # new = list3[-1][0] -list3[0][0]
+        #new = list3[-1][0] -list3[0][0]
 
         #in case there is precision loss
         if new < old:
             new = old
 
+        latency = 1.0*new/old
+        latencies.append(latency)
         tot_new_latency += new
         tot_old_latency += old
-        latency = 1.0*new/old 
-        latencies.append(latency)
 
         #sizes:
         old = sum([abs(p[1]) for p in packets])
         mid = sum([abs(p[1]) for p in list2])
         new = sum([abs(p[1]) for p in list3])
-        logger.info("old size:%d,mid size:%d, new size:%d"%(old,mid, new))
+        # logger.info("old size:%d,mid size:%d, new size:%d"%(old,mid, new))
         size = 1.0*new/old 
         sizes.append(size)
-
         tot_new_size += new
         tot_old_size += old
         #bandwidth
         # bandwidth = size/latency * 1.0
         # bandwidths.append(bandwidth)
-        logger.info("Latency overhead: %.4f,size overhead:%.4f"%(latency,size))
-
-
-
+        # logger.info("Latency overhead: %.4f,size overhead:%.4f"%(latency,size))
 
     foldout = foldout.split('/')[-1]
     logger.info('Average latency overhead: %.4f'% (1.0*tot_new_latency/tot_old_latency-1))
     logger.info('Average size overhead:%.4f'%(1.0*tot_new_size/tot_old_size -1))
     logger.info('%s'%foldout)
-    # logger.info("Median latency overhead: %.4f"%np.median(latencies))
-    # logger.info("Median size overhead:%.4f"%np.median(sizes))
     

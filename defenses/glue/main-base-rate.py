@@ -115,7 +115,7 @@ def choose_site():
     noise_site = np.random.choice(list_names,1)[0]
     return noise_site
         
-def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A', loss_rate=0.0, rtt=0.1):
+def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10, fec_strategy='A', loss_rate=0.0, rtt=0.1, max_inflight=20, seed=None):
     '''mergelist is a list of file names'''
     '''write in 2 files: the merged trace; the merged trace's name'''
     labels = ""
@@ -188,7 +188,7 @@ def MergePad2(output_dir, outputname ,noise, mergelist = None, waiting_time = 10
     # Apply Transport Simulation
     # Apply Transport Simulation
     debug_log_path = join(output_dir, outputname+'.debug.log')
-    tsim = TransportSimulator(loss_rate, rtt, debug_log_path=debug_log_path)
+    tsim = TransportSimulator(loss_rate, rtt, max_inflight=max_inflight, seed=seed, debug_log_path=debug_log_path)
     final_trace = tsim.simulate(final_trace_list)
 
     dump(final_trace, join(output_dir, outputname+'.merge'))
@@ -342,6 +342,20 @@ def parse_arguments():
                         default=0.1,
                         help='Round Trip Time in seconds')
 
+    parser.add_argument('--max-inflight',
+                        type=int,
+                        dest="max_inflight",
+                        metavar='<max_inflight>',
+                        default=20,
+                        help='Max inflight packets')
+
+    parser.add_argument('--seed',
+                        type=int,
+                        dest="seed",
+                        metavar='<seed>',
+                        default=None,
+                        help='Random seed')
+
     args = parser.parse_args()
     config = dict(conf_parser._sections[args.section])
     config_logger(args)
@@ -387,19 +401,32 @@ def CreateRandomMergedTrace(traces_path, list_names, N, M,BaseRate):
     return mergedTrace, nums
 
 
-def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, n_jobs = 20): 
+def parallel(output_dir, noise, mergedTrace, fec_strategy, loss_rate, rtt, max_inflight, seed, n_jobs = 20): 
     cnt = range(len(mergedTrace))
     l = len(cnt)
-    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l, [loss_rate]*l, [rtt]*l)
+    
+    # Generate deterministic seeds if a master seed is provided
+    if seed is not None:
+        seeds = [seed + i for i in range(l)]
+    else:
+        seeds = [None] * l
+        
+    param_dict = zip([output_dir]*l, cnt, [noise]*l, mergedTrace, [fec_strategy]*l, [loss_rate]*l, [rtt]*l, [max_inflight]*l, seeds)
     pool = mp.Pool(n_jobs)
     l  = pool.map(work, param_dict)
     return l
 
 
 def work(param):
-    np.random.seed(datetime.datetime.now().microsecond)
-    output_dir, cnt, noise, T, fec_strategy, loss_rate, rtt = param[0],param[1], param[2], param[3], param[4], param[5], param[6]
-    return MergePad2(output_dir,  str(cnt) , noise, T, waiting_time=10, fec_strategy=fec_strategy, loss_rate=loss_rate, rtt=rtt)
+    output_dir, cnt, noise, T, fec_strategy, loss_rate, rtt, max_inflight, seed = param
+    
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+    else:
+        np.random.seed(datetime.datetime.now().microsecond)
+        
+    return MergePad2(output_dir, str(cnt), noise, T, waiting_time=10, fec_strategy=fec_strategy, loss_rate=loss_rate, rtt=rtt, max_inflight=max_inflight, seed=seed)
 
 if __name__ == '__main__':
     # global list_names
@@ -407,6 +434,9 @@ if __name__ == '__main__':
     args,config = parse_arguments()
     logger.info("Arguments: %s" % (args))
 
+    if args.seed is not None:
+        np.random.seed(args.seed)
+        random.seed(args.seed)
     
     list_names = glob.glob(join(args.traces_path,'*'))
     if args.mode == 'fix':
@@ -421,7 +451,7 @@ if __name__ == '__main__':
     if args.mode == 'random':
         np.save(join(output_dir,'num.npy'),nums)
 
-    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, args.loss_rate, args.rtt, 20)
+    l = parallel(output_dir, eval(args.noise), mergedTrace, args.fec_strategy, args.loss_rate, args.rtt, args.max_inflight, args.seed, 20)
     # l = []
     # cnt = 0
     # for T in mergedTrace:

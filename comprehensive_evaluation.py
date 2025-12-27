@@ -8,7 +8,8 @@ import multiprocessing
 import random
 
 # Configuration
-DATA_DIR = "data/walkiebatch"
+# Configuration
+DATA_DIR = "data/walkiebatch_sample_100"
 RESULTS_FILE = "comprehensive_results.csv"
 LOG_DIR = "evaluation_logs"
 
@@ -19,7 +20,7 @@ DEFENSES = [
     {'name': 'wtfpad_default', 'cmd': 'defenses/wtfpad/main.py', 'args': ['-c', 'default']},
     {'name': 'tamaraw_default', 'cmd': 'defenses/tamaraw/tamaraw.py', 'args': ['--padl', '50']},
     {'name': 'tamaraw_high', 'cmd': 'defenses/tamaraw/tamaraw.py', 'args': ['--padl', '100']},
-    {'name': 'glue_default', 'cmd': 'defenses/glue/main-base-rate.py', 'args': ['-mode', 'fix', '-n', '1', '-m', '1', '-b', '10', '-noise', 'False']}
+    {'name': 'glue_default', 'cmd': 'defenses/glue/main-base-rate.py', 'args': ['-mode', 'fix', '-n', '100', '-m', '1', '-b', '10', '-noise', 'False']}
 ]
 
 STRATEGIES = ['A', 'B', 'C', 'D']
@@ -38,7 +39,7 @@ def run_simulation(params):
     
     cmd = [
         "python3", defense['cmd'],
-        trace_file if 'glue' not in defense['name'] else os.path.dirname(trace_file), # Glue takes dir, others take file/dir
+        trace_file, # Always pass the full path (DATA_DIR)
         "--fec-strategy", strategy,
         "--max-inflight", str(inflight),
         "--loss-rate", str(loss_rate),
@@ -55,8 +56,8 @@ def run_simulation(params):
     # So we should pass the directory to all of them, and they will process all files.
     
     # Adjust command for directory processing
-    if 'glue' not in defense['name']:
-         cmd[2] = DATA_DIR # Point to data dir instead of single file
+    # if 'glue' not in defense['name']:
+    #      cmd[2] = DATA_DIR # Point to data dir instead of single file
     
     try:
         # Run command
