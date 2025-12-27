@@ -128,6 +128,26 @@ def run_simulation(params):
                  print(f"  -> Log file exists: {log_file}")
             return None
             
+        # Cleanup debug logs to save space
+        if os.path.exists(log_file):
+            with open(log_file, 'r') as f:
+                log_content = f.read()
+            out_dir_match = re.search(r"Traces are dumped to (.+)", log_content)
+            if out_dir_match:
+                out_dir = out_dir_match.group(1).strip()
+                if os.path.exists(out_dir):
+                    # print(f"  -> Cleaning up debug logs in {out_dir}")
+                    import glob
+                    debug_logs = glob.glob(os.path.join(out_dir, "*.debug.log"))
+                    for dlog in debug_logs:
+                        try:
+                            os.remove(dlog)
+                        except OSError:
+                            pass
+                    # Optional: remove the directory if empty or if we want to save even more space
+                    # But we might want to keep the traces for manual inspection if needed.
+                    # Given the user's request "accumulate too many logs", deleting debug logs is sufficient.
+
         return {
             'Defense': defense['name'],
             'Strategy': strategy,
